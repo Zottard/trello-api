@@ -1,125 +1,106 @@
 # trello-api
 
-A lightweight automation server that bridges Trello project management with AI-assisted development. It fetches active sprint cards from configured Trello boards and auto-generates ready-to-use [Claude Code](https://claude.ai/code) prompts — complete with project context, repo paths, labels, and task descriptions — eliminating manual context gathering before implementing a feature.
+Servidor de automatización que conecta Trello con el desarrollo asistido por IA. Toma las cards activas del sprint, las procesa y genera prompts listos para usar en [Claude Code](https://claude.ai/code) — con contexto del proyecto, ruta del repositorio, labels y descripción de la tarea incluidos.
 
-## How it works
+## Cómo funciona
 
 ```
-Trello Boards → Active Sprint Cards → Structured Prompts → /prompts/{date}/*.md
+Boards de Trello → Cards del sprint activo → Prompts estructurados → /prompts/{fecha}/*.md
 ```
 
-1. Cards are pulled from configured lists (`sprint actual`, `en progreso`, `sprint-{n}`)
-2. Each card is enriched with board context, repository path, and labels
-3. Prompts are generated as markdown files, organized by date
-4. A scheduler runs the generation automatically every day at 9am
+1. Se obtienen las cards de las listas configuradas (`sprint actual`, `en progreso`, `sprint-{n}`)
+2. Cada card se enriquece con contexto del proyecto, ruta del repo y labels
+3. Se generan archivos markdown organizados por fecha
+4. Un scheduler corre la generación automáticamente todos los días a las 9am
 
-## Tech stack
+## Stack
 
-| Layer | Choice | Why |
+| Capa | Tecnología | Por qué |
 |---|---|---|
-| Runtime | [Bun](https://bun.sh) | 4× faster startup, built-in TypeScript, no config |
-| Framework | [Hono](https://hono.dev) | Minimal overhead, native TypeScript, edge-compatible |
-| Validation | [Zod](https://zod.dev) | Runtime safety for env vars and API boundaries |
-| Language | TypeScript (strict) | End-to-end type safety across the full pipeline |
+| Runtime | [Bun](https://bun.sh) | 4× más rápido que Node, TypeScript nativo, sin config |
+| Framework | [Hono](https://hono.dev) | Mínimo overhead, TypeScript-first, compatible con edge |
+| Validación | [Zod](https://zod.dev) | Seguridad en runtime para env vars y límites del sistema |
+| Lenguaje | TypeScript (strict) | Type safety de punta a punta |
 
-Zero ORM, zero database — prompts are flat markdown files, boards are config-driven.
+Sin ORM ni base de datos — los prompts son archivos markdown planos, los boards se configuran en código.
 
 ## API
 
 ```
 GET  /health              → { ok: true }
-GET  /cards               → all boards, filtered by active sprint lists
-GET  /cards/:board        → single board (vietur | tex)
-POST /prompts/generate    → trigger prompt generation on demand
-GET  /prompts             → index of all generated prompt files by date
+GET  /cards               → todos los boards, filtrado por listas del sprint activo
+GET  /cards/:board        → board específico (vietur | tex)
+POST /prompts/generate    → dispara la generación de prompts on demand
+GET  /prompts             → índice de todos los archivos generados por fecha
 ```
 
-## Project structure
+## Estructura
 
 ```
 src/
-├── index.ts        # Server bootstrap + env validation
-├── config.ts       # Board definitions, repo paths, prompt templates
-├── trello.ts       # Trello API client (native fetch, fully typed)
-├── claude.ts       # Prompt generation logic
-├── prompts.ts      # Daily generation orchestration
-├── scheduler.ts    # setTimeout-based daily scheduler (9am)
+├── index.ts        # Bootstrap del servidor + validación de env
+├── config.ts       # Definición de boards, repos y templates de prompts
+├── trello.ts       # Cliente de la API de Trello (fetch nativo, tipado)
+├── claude.ts       # Lógica de generación de prompts
+├── prompts.ts      # Orquestación de la generación diaria
+├── scheduler.ts    # Scheduler diario con setTimeout (9am)
 └── routes/
-    ├── cards.ts    # Card fetching endpoints
-    └── prompts.ts  # Prompt listing + generation endpoints
+    ├── cards.ts    # Endpoints de cards
+    └── prompts.ts  # Endpoints de prompts
 
 prompts/
-└── YYYY-MM-DD/     # Generated markdown files, one per card
+└── YYYY-MM-DD/     # Archivos markdown generados, uno por card
 ```
 
-## Setup
+## Configuración
 
-**Requirements:** [Bun](https://bun.sh) ≥ 1.0
+**Requisitos:** [Bun](https://bun.sh) ≥ 1.0
 
 ```bash
 bun install
 ```
 
-Create a `.env` file:
+Crear un archivo `.env`:
 
 ```env
-TRELLO_API_KEY=your_api_key
-TRELLO_TOKEN=your_token
+TRELLO_API_KEY=tu_api_key
+TRELLO_TOKEN=tu_token
 PORT=4000
 ```
 
-Get your credentials at [trello.com/app-key](https://trello.com/app-key).
+Las credenciales se obtienen en [trello.com/app-key](https://trello.com/app-key).
 
-## Running
+## Uso
 
 ```bash
-# Development (hot reload)
+# Desarrollo (hot reload)
 bun dev
 
-# Production
+# Producción
 bun start
 ```
 
-## Prompt generation
+## Generación de prompts
 
-Prompts are generated automatically at 9am daily. To trigger on demand:
+Se genera automáticamente a las 9am todos los días. Para disparar manualmente:
 
 ```bash
 curl -X POST http://localhost:4000/prompts/generate
 ```
 
-Each prompt file includes:
-- Card title and description
-- Project context (which product, which stack)
-- Target repository name and absolute path
-- Sprint list and labels
-- Instructions for scoped, focused implementation
+Cada prompt incluye contexto del proyecto, nombre y ruta del repositorio, lista y labels de la card, y las instrucciones para implementar exactamente lo que se pide.
 
-### Smart repo resolution (Vietur board)
+### Resolución de repos por label (board Vietur)
 
-Cards labeled `front` → CMS repo. Cards labeled `back` → backend repo. Both labels → prompts for both repos. This lets one card spawn multiple targeted prompts for full-stack tasks.
+Cards con label `front` → repo CMS. Cards con label `back` → repo backend. Ambas labels → un prompt por repo. Esto permite que una sola card genere prompts para tareas full-stack.
 
-## Configuration
+## Decisiones de diseño
 
-Boards and repos are defined in [`src/config.ts`](src/config.ts). Adding a new board:
+- **Archivos planos sobre base de datos** — los prompts son descartables, legibles por humanos y no requieren infraestructura.
+- **setTimeout sobre cron** — evita la dependencia `node-cron` para un único job diario.
+- **Fetching en paralelo** — `Promise.all` por board y lista; 3 boards × 2 listas = 6 requests concurrentes.
+- **Config-driven** — boards, listas y repos viven en un solo archivo. Agregar un proyecto nuevo son ~5 líneas.
 
-```ts
-export const BOARDS_CONFIG = {
-  myboard: {
-    boardName: "My Trello Board",
-    targetLists: ["sprint actual", "en progreso"],
-  },
-  // ...
-};
-```
-
-## Design decisions
-
-- **Flat files over a database** — prompts are disposable, date-organized, and human-readable. No infra needed.
-- **setTimeout over cron** — avoids the `node-cron` dependency for a single daily job. Recalculates at midnight-crossing correctly.
-- **Parallel board fetching** — `Promise.all` across boards and lists; fetching 3 boards × 2 lists = 6 concurrent requests.
-- **Config-driven, not hardcoded** — boards, lists, and repos live in one file. New projects take ~5 lines.
-
-## License
+## Licencia
 
 MIT
